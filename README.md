@@ -1,9 +1,9 @@
-# `DeepChem Tools`
+# `ChemMl`
 
-Tools for use with life sciences machine learning platform DeepChem.
+Tools for machine learning on chemical entities. Vectorization of chemical
+structures with fingerprints, training and predicting with datasets labeled
+with bioactivity or physicochemical properties.
 
-* [DeepChem.io](http://deepchem.io)
-* [DeepChem on GitHub](https://github.com/deepchem/deepchem)
-* [DeepChem on O'Reilly](https://learning.oreilly.com/library/view/deep-learning-for/9781492039822/)
 * [RDKit](https://www.rdkit.org/)
+* [DeepChem on GitHub](https://github.com/deepchem/deepchem)
 
