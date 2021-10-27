@@ -5,5 +5,11 @@ structures with fingerprints, training and predicting with datasets labeled
 with bioactivity or physicochemical properties.
 
 * [RDKit](https://www.rdkit.org/)
-* [DeepChem on GitHub](https://github.com/deepchem/deepchem)
+* ChemAxon
+* OpenEye
+* [BioClients](https://github.com/jeremyjyang/BioClients)
+* [BiasNet](https://github.com/sirimullalab/biasNet)
+* Scikit-learn
+* Pytorch
+* Tensorflow
 
