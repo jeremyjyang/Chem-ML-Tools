@@ -29,12 +29,37 @@ from sklearn.naive_bayes import GaussianNB as skl_GaussianNB
 from sklearn.neural_network import BernoulliRBM as skl_BernoulliRBM, MLPClassifier as skl_MLPClassifier
 from sklearn.decomposition import PCA as skl_PCA
 
-import csv #Replace with Pandas?
-csv.register_dialect("skl", strict=True, delimiter="\t", quotechar='"', quoting=csv.QUOTE_NONNUMERIC)
+import csv #replace with pandas
+#csv.register_dialect("skl", strict=True, delimiter="\t", quotechar='"', quoting=csv.QUOTE_NONNUMERIC)
 
 ##############################################################################
-def CsvDialect(name):
- return csv.get_dialect(name)
+#def CsvDialect(name):
+# return csv.get_dialect(name)
+#
+##############################################################################
+def ClassifierFactory(args):
+  clf=None;
+  alg = args.alg.upper();
+  if alg=='AB':
+    clf = skl_AdaBoostClassifier(algorithm='SAMME.R')
+  elif alg=='DT':
+    clf = skl_DecisionTreeClassifier(criterion='gini', max_depth=None, max_features=None)
+  elif alg=='KNN':
+    clf = skl_KNeighborsClassifier(n_neighbors=4, algorithm='auto', metric='minkowski', p=2)
+  elif alg=='MLP':
+    clf = skl_MLPClassifier(hidden_layer_sizes=(args.nn_layers, ), activation='logistic', solver='adam', alpha=0.0001, batch_size='auto', learning_rate='constant', learning_rate_init=0.001, power_t=0.5, max_iter=args.nn_max_iter, shuffle=True, random_state=None, tol=0.0001, verbose=False, warm_start=False, momentum=0.9, nesterovs_momentum=True, early_stopping=False, validation_fraction=0.1, beta_1=0.9, beta_2=0.999, epsilon=1e-08)
+  elif alg=='NB':
+    clf = skl_GaussianNB()
+  elif alg=='RF':
+    clf = skl_RandomForestClassifier(max_depth=5, n_estimators=10, max_features=1)
+  elif alg=='SVM':
+    try:
+      gamma = float(args.svm_gamma)
+    except:
+      logging.debug(f"args.svm_gamma = '{args.svm_gamma}'")
+      gamma = 'auto'
+    clf = sklearn_utils.SVMClassifierFactory(kernel=args.svm_kernel, cparam=args.svm_cparam, gamma=gamma)
+  return clf
 
 ##############################################################################
 def SVMClassifierFactory(kernel, cparam=1.0, gamma='auto'):
@@ -42,167 +67,193 @@ def SVMClassifierFactory(kernel, cparam=1.0, gamma='auto'):
   return clf
 
 ##############################################################################
-def ReadDataset(fin, eptag=None, ignore_tags=None, csvdialect=CsvDialect('skl')):
+#def ReadDataset(fin, eptag=None, ignore_tags=None, csvdialect=CsvDialect('skl')):
+def ReadDataset(fin, delim, eptag=None, ignore_tags=None):
   '''Read from file.  Classification or regression.  All features and endpoint must be numeric.'''
   n_data=0; n_col=0; X=[]; y=[];
-  csvReader=csv.DictReader(fin, dialect=csvdialect, fieldnames=None)
-  logging.debug('n_fieldnames: %d'%len(csvReader.fieldnames))
-  logging.debug('fieldnames = %s'%str(csvReader.fieldnames))
+  #csvReader=csv.DictReader(fin, dialect=csvdialect, fieldnames=None)
+  #logging.debug('n_fieldnames: %d'%len(csvReader.fieldnames))
+  #logging.debug('fieldnames = %s'%str(csvReader.fieldnames))
+  df = pd.read_csv(fin, sep=delim)
 
   if not eptag:
-    eptag=csvReader.fieldnames[-1]
-  j_eptag=csvReader.fieldnames.index(eptag)
+    #eptag = csvReader.fieldnames[-1]
+    eptag = df.columns[-1]
+  #j_eptag = csvReader.fieldnames.index(eptag)
+  j_eptag = df.columns.index(eptag)
 
-  ignore_tags=re.split(r'\s*,\s*', ignore_tags.strip()) if ignore_tags else []
-
-  featuretags=csvReader.fieldnames[:]
+  ignore_tags = re.split(r'\s*,\s*', ignore_tags.strip()) if ignore_tags else []
+  #featuretags = csvReader.fieldnames[:]
+  featuretags = df.columns[:]
   featuretags.pop(j_eptag)
   for tag in ignore_tags:
     featuretags.remove(tag)
+  logging.debug(f"eptag = '{eptag}'; j_eptag = {j_eptag}")
+  logging.debug(f"featuretags = {str(featuretags)}")
 
-  logging.debug('eptag = "%s" ; j_eptag = %d'%(eptag, j_eptag))
-  logging.debug('featuretags = %s'%str(featuretags))
+  #while True:
+  #  try:
+  #    row = next(csvReader)
+  #    row_featurevals = [row[tag] for tag in featuretags]
+  #    row_epval = row[eptag]
+  #    X.append(row_featurevals)
+  #    y.append(row_epval)
+  #    n_data+=1
+  #  except Exception as e:
+  #    break #normal EOF
 
-  while True:
+  #X = np.array(X)
+  #y = np.array(y)
+
+  for tag in featuretags:
     try:
-      row = next(csvReader)
-      row_featurevals = [row[tag] for tag in featuretags]
-      row_epval = row[eptag]
-      X.append(row_featurevals)
-      y.append(row_epval)
-      n_data+=1
+      df[tag] = df[tag].astype(float, errors="raise")
     except Exception as e:
-      break #normal EOF
+      logging.error(f"df['{tag}'].astype(float) failed: {e}")
 
-  X = np.array(X)
-  y = np.array(y)
+  try:
+    df[eptag] = df[eptag].astype(int, errors="raise")
+  except Exception as e:
+    logging.error(f"df['{eptag}'].astype(int) failed: {e}")
 
-  logging.debug('CSV n_data = %d'%(n_data))
-  logging.debug('X.shape = %s'%(str(X.shape)))
+  X = np.array(df[featuretags])
+  y = np.array(df[eptag])
 
-  if len(X.shape)!=2:
-    logging.error('bad X.shape.')
-  elif n_data!=X.shape[0]:
-    logging.error('%d != %d'%(n_data, X.shape[0]))
-  elif n_data!=len(y):
-    logging.error('%d != %d'%(n_data, len(y)))
+  logging.debug(f"n_X = {X.shape[0]}")
+  logging.debug(f"n_y = {len(y)}")
+  logging.debug(f"X.shape = {X.shape[1]}")
+
+  if X.shape[0]!=len(y):
+    logging.error(f"n_X != n_y; {X.shape[0]} != {len(y)}")
 
   return (X,y,featuretags,eptag)
 
 ##############################################################################
-def VectorizeCSV(fin, fout, coltags, csvdialect):
-  '''What to do with missing values?  quoting=csv.QUOTE_NONNUMERIC means
-all non-quoted fields converted to float.'''
+#def VectorizeCSV(fin, fout, coltags, csvdialect):
+# '''What to do with missing values?  quoting=csv.QUOTE_NONNUMERIC means all non-quoted fields converted to float.'''
+def VectorizeCSV(fin, fout, coltags):
   n_in=0;  n_out=0;
-  csvReader=csv.DictReader(fin, dialect=csvdialect, fieldnames=None)
-  logging.debug('fieldnames: %d'%len(csvReader.fieldnames))
-  logging.debug('fieldnames = %s'%str(csvReader.fieldnames))
-  rows=[];
-  while True:
-    try:
-      row = next(csvReader)
-      n_in+=1
-      rows.append(row)
-    except csv.Error as e:
-      logging.debug('bad row: %s'%e)
-      continue
-    except Exception as e:
-      if 'could not convert string to float' in str(e):
-        logging.debug('bad row: %s'%e)
-        continue
-      else:
-        break #normal EOF
+  #csvReader = csv.DictReader(fin, dialect=csvdialect, fieldnames=None)
+  df = pd.read_csv(fin, sep=delim)
+  #logging.debug('fieldnames: %d'%len(csvReader.fieldnames))
+  #logging.debug('fieldnames = %s'%str(csvReader.fieldnames))
+  logging.debug(f"fieldnames: ({df.shape[1]}) {df.columns}")
 
   vec = skl_DictVectorizer()
 
-  rows_vectorized = vec.fit_transform(rows)
+  #rows=[];
+  #while True:
+  #  try:
+  #    row = next(csvReader)
+  #    n_in+=1
+  #    rows.append(row)
+  #  except csv.Error as e:
+  #    logging.debug('bad row: %s'%e)
+  #    continue
+  #  except Exception as e:
+  #    if 'could not convert string to float' in str(e):
+  #      logging.debug('bad row: %s'%e)
+  #      continue
+  #    else:
+  #      break #normal EOF
+  #rows_vectorized = vec.fit_transform(rows)
 
-  logging.debug('vectorized fieldnames: %d'%len(vec.get_feature_names()))
-  logging.debug('vectorized fieldnames = %s'%str(vec.get_feature_names()))
+  rows_vectorized = vec.fit_transform(df.to_dict())
+
+  logging.debug(f"vectorized fieldnames: {len(vec.get_feature_names())}")
+  logging.debug(f"vectorized fieldnames = {str(vec.get_feature_names())}")
 
   #scipy.sparse.csr.csr_matrix
   #https://docs.scipy.org/doc/scipy/reference/generated/scipy.sparse.csr_matrix.html#scipy.sparse.csr_matrix
-  logging.debug('type(rows_vectorized): %s'%(type(rows_vectorized)))
-
-  logging.debug('CSV rows read: %d'%(n_in))
+  logging.debug(f"type(rows_vectorized): {type(rows_vectorized)}")
+  logging.debug(f"rows read: {n_in}")
 
   rv = rows_vectorized.todok()
 
-  csvWriter=csv.DictWriter(fout, fieldnames=vec.get_feature_names(), dialect=csvdialect)
+  #csvWriter=csv.DictWriter(fout, fieldnames=vec.get_feature_names(), dialect=csvdialect)
+  #csvWriter.writeheader()
+  #tags = vec.get_feature_names()
+  #for i in range(rv.get_shape()[0]):
+  #  row_this={}
+  #  for j,tag in enumerate(tags):
+  #    key = (i,j)
+  #    row_this[tag] = rv[key] if key in rv else 0
+  #  csvWriter.writerow(row_this)
+  #  n_out+=1
+  #logging.debug('CSV rows out: %d'%(n_out))
 
-  csvWriter.writeheader()
-  tags = vec.get_feature_names()
-  for i in range(rv.get_shape()[0]):
-    row_this={}
-    for j,tag in enumerate(tags):
-      key = (i,j)
-      row_this[tag] = rv[key] if key in rv else 0
-    csvWriter.writerow(row_this)
-    n_out+=1
-
-  logging.debug('CSV rows out: %d'%(n_out))
+  pd.DataFrame(rv).to_csv(fout, "\t", index=False)
 
 ##############################################################################
+#def CheckCSV(fin, csvdialect):
 def CheckCSV(fin, csvdialect):
   '''Ok for dataset?  All numeric?  Or needing vectorization.'''
   try:
-    X,y,ftags,etag = ReadDataset(fin, csvdialect=csvdialect)
+    #X,y,ftags,etag = ReadDataset(fin, csvdialect=csvdialect)
+    X,y,ftags,etag = ReadDataset(fin, delim, eptag=None, ignore_tags=None)
   except Exception as e:
     logging.error(e)
-
   if X.shape[0]>0 and X.shape[1]>0:
-    logging.info('NOTE: dataset ok, with N_cases = %d and N_features = %d'%(X.shape[0],X.shape[1]))
+    logging.info(f"Dataset ok, with N_cases = {X.shape[0]} and N_features = {X.shape[1]}")
     return True
   elif X.shape[0]==0:
-    logging.error('dataset not ok, with N_cases = 0')
+    logging.error('Dataset not ok, with N_cases = 0')
     return False
   elif X.shape[1]==0:
-    logging.error('dataset not ok, with N_features = 0')
+    logging.error('Dataset not ok, with N_features = 0')
     return False
   else:
-    logging.error('dataset not ok.')
+    logging.error('Dataset not ok.')
     return False
 
 ##############################################################################
-def SplitCSV(fin, fout, fout_split, split_pct, csvdialect=CsvDialect('skl')):
-  n_in=0; n_train=0; n_test=0;
-  csvReader=csv.DictReader(fin, dialect=csvdialect, fieldnames=None)
-  logging.debug('fieldnames: %d'%len(csvReader.fieldnames))
-  logging.debug('fieldnames = %s'%str(csvReader.fieldnames))
+#def SplitCSV(fin, fout, fout_split, split_pct, csvdialect=CsvDialect('skl')):
+def SplitCSV(fin, fout, delim, fout_split, split_pct):
+  #n_in=0; n_train=0; n_test=0;
+  #csvReader = csv.DictReader(fin, dialect=csvdialect, fieldnames=None)
+  #logging.debug('fieldnames: %d'%len(csvReader.fieldnames))
+  #logging.debug('fieldnames = %s'%str(csvReader.fieldnames))
+  #csvWriter = csv.DictWriter(fout, fieldnames=csvReader.fieldnames, dialect=csvdialect)
+  #csvWriter_split = csv.DictWriter(fout_split, fieldnames=csvReader.fieldnames, dialect=csvdialect)
+  #csvWriter.writeheader()
+  #csvWriter_split.writeheader()
+  #while True:
+  #  try:
+  #    row = next(csvReader)
+  #    n_in+=1
+  #  except csv.Error as e:
+  #    logging.debug('bad row: %s'%e)
+  #    continue
+  #  except Exception as e:
+  #    if 'could not convert string to float' in str(e):
+  #      logging.debug('bad row: %s'%e)
+  #      continue
+  #    else:
+  #      break #normal EOF
+  #  if 100.0*random.random() < split_pct:
+  #    csvWriter_split.writerow(row)
+  #    n_test+=1
+  #  else:
+  #    csvWriter.writerow(row)
+  #    n_train+=1
+  #n_out=n_train+n_test
+  #logging.debug('CSV rows read: %d'%(n_in))
+  #logging.debug('CSV rows out (train): %d (%.1f%%)'%(n_train, 100.0*n_train/n_out))
+  #logging.debug('CSV rows out (test): %d (%.1f%%)'%(n_test, 100.0*n_test/n_out))
+  #logging.debug('CSV rows out (TOTAL): %d'%(n_out))
 
-  csvWriter=csv.DictWriter(fout, fieldnames=csvReader.fieldnames, dialect=csvdialect)
-  csvWriter_split=csv.DictWriter(fout_split, fieldnames=csvReader.fieldnames, dialect=csvdialect)
-  csvWriter.writeheader()
-  csvWriter_split.writeheader()
+  df = pd.read_csv(fin, sep=delim)
+  logging.debug(f"fieldnames: ({df.shape[1]}) {df.columns}")
 
-  while True:
-    try:
-      row = next(csvReader)
-      n_in+=1
-    except csv.Error as e:
-      logging.debug('bad row: %s'%e)
-      continue
-    except Exception as e:
-      if 'could not convert string to float' in str(e):
-        logging.debug('bad row: %s'%e)
-        continue
-      else:
-        break #normal EOF
+  df_train = df.sample(frac=split_pct/100, replace=False)
+  df_test = df[list(set(df.index) - set(df_train.index))]
+  logging.info(f"rows read: {df.shape[0]}")
+  logging.info(f"rows out (train): {df_train.shape[0]} ({100.0*df_train.shape[0]/df.shape[0]:%.1f}%)") 
+  logging.info(f"rows out (test): {df_test.shape[0]} ({100.0*df_test.shape[0]/df.shape[0]:.1f}%)")
+  logging.info(f"rows out (TOTAL): {df.shape[0]}")
 
-    if 100.0*random.random() < split_pct:
-      csvWriter_split.writerow(row)
-      n_test+=1
-    else:
-      csvWriter.writerow(row)
-      n_train+=1
-  n_out=n_train+n_test
-
-  logging.debug('CSV rows read: %d'%(n_in))
-  logging.debug('CSV rows out (train): %d (%.1f%%)'%(n_train, 100.0*n_train/n_out))
-  logging.debug('CSV rows out (test): %d (%.1f%%)'%(n_test, 100.0*n_test/n_out))
-  logging.debug('CSV rows out (TOTAL): %d'%(n_out))
-
-  return n_in,n_train,n_test
+  #return n_in,n_train,n_test
+  return df.shape[0],df_train.shape[0],df_test.shape[0]
 
 ##############################################################################
 def SplitDataset(X, y, split_pct):
@@ -223,14 +274,14 @@ def GenerateRandomDataset(nclass, nsamp, nfeat, fout):
         random_state=random.randint(0, 100),
         n_clusters_per_class=1)
 
-  fout.write((','.join(['"f%d"'%j for j in range(1, nfeat+1)]))+', "label"\n')
+  fout.write(('\t'.join([f"f{j}" for j in range(1, nfeat+1)]))+"\tlabel\n")
   for i,row in enumerate(X):
-    fout.write((','.join(map(lambda f:'%.2f'%f, row)))+(',%d\n'%y[i]))
+    fout.write(('\t'.join(map(lambda x:f"{x:.2f}", row)))+(f"\t{y[i]}\n"))
 
 ##############################################################################
 def TestClassifier(clf, X, y, name, fout):
   MESSAGES=[];
-  MESSAGES.append('%12s: Nsamp: %6d ; Nfeat: %6d ; Nclas: %6d'%(name, len(X), X.shape[1], len(set(y))))
+  MESSAGES.append(f"{name:12s}: Nsamp: {len(X):6d} ; Nfeat: {X.shape[1]:6d} ; Nclas: {len(set(y)):6d}")
 
   if len(set(y))>2:
     logging.error('Only handles Nclasses = 2.')
@@ -244,20 +295,20 @@ def TestClassifier(clf, X, y, name, fout):
   #logging.debug('cmat=%s'%(str(cmat)))
   #logging.debug('cmat.ravel()=%s'%(str(cmat.ravel())))
   tn, fp, fn, tp = cmat.ravel()
-  MESSAGES.append('%12s: tp = %6d ; fp = %6d ; tn = %6d ; fn = %6d'%(name, tp, fp, tn, fn))
+  MESSAGES.append(f"{name:<12}: tp = {tp:6d} ; fp = {fp:6d} ; tn = {tn:6d} ; fn = {fn:6d}")
   prec = sklearn.metrics.precision_score(y, y_pred)
   rec = sklearn.metrics.recall_score(y, y_pred)
-  MESSAGES.append('%12s: mean_accuracy = %.4f ; precision = %.4f ; recall = %.4f'%(name, mean_acc, prec, rec))
+  MESSAGES.append(f"{name:<12}: mean_accuracy = {mean_acc:.4f} ; precision = {prec:.4f} ; recall = {rec:.4f}")
   mcc = sklearn.metrics.matthews_corrcoef(y, y_pred)
   f1 = sklearn.metrics.f1_score(y, y_pred)
-  MESSAGES.append('%12s: F1_score = %.4f ; MCC = %.4f'%(name, f1, mcc))
+  MESSAGES.append(f"{name:<12}: F1_score = {f1:.4f} ; MCC = {mcc:.4f}")
 
   if fout:
-    fout.write((','.join(['f%d'%j for j in range(1, X.shape[1]+1)]))+', label\n')
+    fout.write(("\t".join(["f{j}" for j in range(1, X.shape[1]+1)]))+"\tlabel\n")
     for i in range(len(X)):
-      fout.write((','.join(map(lambda f:'%.3f'%f, X[i])))+(',%d\n'%y_pred[i]))
+      fout.write(("\t".join(map(lambda x:"{x:.3f}", X[i])))+("\t{y_pred[i]}\n"))
   else:
-    MESSAGES.append('%12s: No output file.'%(name))
+    MESSAGES.append(f"{name:<12}: No output file.")
 
   for line in MESSAGES:
     logging.debug(line)
@@ -399,13 +450,136 @@ def PlotPCA(clf, X_train, y_train, X_test, y_test, cnames, epname, title, subtit
   return fig
 
 ##############################################################################
+def CrossValidate(clf,X,y,cv_folds):
+  cv_scores = sklearn.model_selection.cross_val_score(clf, X, y, cv=cv_folds, verbose=bool(logging.getLogger().getEffectiveLevel()<=logging.DEBUG))
+  logging.info(f"cv_scores={str(cv_scores)}")
+
+##############################################################################
+def Demo(clf,nclass,nfeat,nsamp,show_plot,ofile_plot):
+  '''Demo classifier using randomly generated dataset for training and test.'''
+  ### Example dataset: two interleaving half circles
+  #X, y = sklearn.datasets.make_moons(noise=0.3, random_state=0)
+  ### Example dataset: 
+  #X, y = sklearn.datasets.load_diabetes() #regression
+  #X, y = sklearn.datasets.load_breast_cancer() #classification
+
+  nclass = nclass if nclass else 2
+  nfeat = nfeat if nfeat else 2 #allows 2D plot
+  nsamp = nsamp if nsamp else random.randint(50,200)
+
+  ###Generate random classification dataset
+  X, y = skl_make_classification(
+        n_classes=nclass,
+        n_samples=nsamp,
+        n_features=nfeat,
+        n_redundant=0,
+        n_informative=2,
+        random_state=random.randint(0,100),
+        n_clusters_per_class=1)
+
+  # Preprocess dataset, split into training and test part
+  X = skl_StandardScaler().fit_transform(X)
+  #X_train, X_test, y_train, y_test = sklearn.model_selection.train_test_split(X, y, test_size=.4)
+  X_train, X_test, y_train, y_test = sklearn_utils.SplitDataset(X, y, split_pct=25)
+
+  ### Train the classifier:
+  clf.fit(X,y)
+
+  ### Test the classifier:
+  sklearn_utils.TestClassifier(clf,X_train,y_train,'train',None)
+  sklearn_utils.TestClassifier(clf,X_test,y_test,'test',None)
+  sklearn_utils.TestClassifier(clf,X,y,'train_and_test',None)
+
+  fnames = ['feature_%02d'%(j+1) for j in range(nfeat)]
+  epname = 'endpoint'
+
+  title = re.sub(r"^.*'.*\.(.*)'.*$",r'\1',str(type(clf)))
+
+  if show_plot or ofile_plot:
+    if nfeat>2:
+      sklearn_utils.PlotPCA(clf,X_train,y_train,X_test,y_test,fnames,epname,title,None,7,5,100,ofile_plot)
+    else:
+      PlotClassifier(clf,X_train,y_train,X_test,y_test,fnames,epname,title,None,ofile_plot)
+    if show_plot:
+      mpl_pyplot.show()
+
+##############################################################################
+def PlotClassifier(clf,X_train,y_train,X_test,y_test,fnames,epname,title,subtitle,ofile):
+  '''Only for n_features = 2,  n_classes = 2.'''
+  logging.debug("PLOT: "+title)
+  mesh_h = .02  # mesh step size
+  figsize = (12,8) #w,h in inches
+  fig = mpl_pyplot.figure(figsize=figsize, dpi=100, frameon=False, tight_layout=False)
+
+  X = np.concatenate((X_train,X_test),axis=0)
+  x_min,x_max = X[:,0].min()-.5, X[:,0].max()+.5
+  y_min,y_max = X[:,1].min()-.5, X[:,1].max()+.5
+  xx, yy = np.meshgrid(np.arange(x_min, x_max, mesh_h),
+                          np.arange(y_min, y_max, mesh_h))
+  my_colors = ['#FF0000', '#0000FF', '#00FF00', '#999999']
+
+  #Need more colors for n_classes > 2 ?
+  cm_contour = mpl_pyplot.cm.RdBu
+  cm_bright = mpl_colors.ListedColormap(my_colors)
+
+  ### Axes 1: dataset points only.
+  ax1 = mpl_pyplot.subplot(1, 2, 1)
+  ax1.set_title('%s: dataset points'%(title))
+  if subtitle: ax1.set_title('%s\n%s'%(ax1.get_title(),subtitle))
+  ax1.set_xlabel(fnames[0], labelpad=2)
+  ax1.set_ylabel(fnames[1], labelpad=2)
+
+  ax1.scatter(X_train[:,0], X_train[:,1], c=y_train, cmap=cm_bright)
+  ax1.scatter(X_test[:,0], X_test[:,1], c=y_test, cmap=cm_bright, alpha=0.6)
+
+  ax1.set_xlim(xx.min(), xx.max())
+  ax1.set_ylim(yy.min(), yy.max())
+  ax1.set_xticks(())
+  ax1.set_yticks(())
+
+  ### Axes 2: decision boundary.
+  ax2 = mpl_pyplot.subplot(1, 2, 2)
+  ax2.set_title('%s: decision boundary'%(title))
+  ax2.set_xlabel(fnames[0], labelpad=2)
+  ax2.set_ylabel(fnames[1], labelpad=2)
+
+  #Assign a color to each point in the mesh [x_min, m_max]x[y_min, y_max].
+  if hasattr(clf,"decision_function"):
+    ax2.set_title('%s: decision_function contours'%(title))
+    Z = clf.decision_function(np.c_[xx.ravel(), yy.ravel()])
+  else:
+    ax2.set_title('%s: prediction contours'%(title))
+    Z = clf.predict_proba(np.c_[xx.ravel(), yy.ravel()])[:,1]
+
+  # Put the result into a color plot
+  Z = Z.reshape(xx.shape)
+  ax2.contourf(xx, yy, Z, cmap=cm_contour, alpha=.8)
+
+  ax2.scatter(X_train[:,0], X_train[:,1], c=y_train, cmap=cm_bright)
+  ax2.scatter(X_test[:,0], X_test[:,1], c=y_test, cmap=cm_bright, alpha=0.6)
+
+  ax2.set_xlim(xx.min(), xx.max())
+  ax2.set_ylim(yy.min(), yy.max())
+  ax2.set_xticks(())
+  ax2.set_yticks(())
+  score = clf.score(X_test, y_test)
+  ax2.text(xx.max()-.3, yy.min()+.3, ('%.2f'%score).lstrip('0'), size=15, horizontalalignment='right')
+
+  fig.subplots_adjust(left=.02, right=.98)
+
+  if ofile:
+    fig.savefig(ofile)
+
+  return fig
+
+##############################################################################
 if __name__=='__main__':
   parser = argparse.ArgumentParser(description='SciKit-Learn utility')
   ops = ['Vectorize', 'GenerateRandomDataset', 'CheckCSV', 'SplitCSV']
   parser.add_argument("op", choices=ops, help='operation')
   parser.add_argument("--i", dest="ifile", help="input, CSV with N_features+1 cols, last col class labels")
   parser.add_argument("--noheader", action="store_true", help="CSV lacks header")
-  parser.add_argument("--delim", default=', ', help="CSV delimiter")
+  parser.add_argument("--delim", default='\t', help="TSV/CSV delimiter")
   parser.add_argument("--defval", type=float, default=0.0, help="default numeric value")
   parser.add_argument("--coltags", help="column names, comma-separated")
   parser.add_argument("--tsv", action="store_true", help="delim is tab")
@@ -428,23 +602,26 @@ if __name__=='__main__':
 
   delim = '\t' if args.tsv else args.delim
 
-  csv.register_dialect("skl", strict=True, delimiter=delim, quotechar='"', quoting=csv.QUOTE_NONNUMERIC)
+  #csv.register_dialect("skl", strict=True, delimiter=delim, quotechar='"', quoting=csv.QUOTE_NONNUMERIC)
 
   mpl.use('Agg')
 
   if args.op == "Vectorize":
     if not args.ifile: parser.error('input file required.')
-    VectorizeCSV(fin, fout, args.coltags, csv.get_dialect("skl"))
+    #VectorizeCSV(fin, fout, args.coltags, csv.get_dialect("skl"))
+    VectorizeCSV(fin, fout, args.delim, args.coltags)
 
   elif args.op == "GenerateRandomDataset":
     GenerateRandomDataset(args.nclass, args.nsamp, args.nfeat, fout)
 
   elif args.op == "CheckCSV":
-    CheckCSV(fin, csv.get_dialect("skl"))
+    #CheckCSV(fin, csv.get_dialect("skl"))
+    CheckCSV(fin, args.delim)
 
   elif args.op == "SplitCSV":
     if args.ofile_split:
       fout_split = open(args.ofile_split, "w")
     else:
       parser.error('--osplit required.')
-    SplitCSV(fin, fout, fout_split, args.split_pct, csv.get_dialect("skl"))
+    #SplitCSV(fin, fout, fout_split, args.split_pct, csv.get_dialect("skl"))
+    SplitCSV(fin, fout, args.delim, fout_split, args.split_pct)

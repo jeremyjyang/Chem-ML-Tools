@@ -1,7 +1,6 @@
 #!/usr/bin/env python3
 #############################################################################
 ### scikit_classify.py - Scikit-Learn classifier methods and utilities
-### 
 ### http://scikit-learn.org/
 ### 
 ### Dataset: (X,y)
@@ -40,183 +39,30 @@
 ### array([0, 0, 1, 1, 1, 0, 0, 0, 0, 1])
 #############################################################################
 import sys,os,re,argparse,logging
-import random,time,csv
+import random,time
+#import csv #replace with pandas
 
 import numpy as np
 import matplotlib as mpl #additional imports follow
 import pandas as pd
 
-import sklearn.metrics 
-import sklearn.model_selection
-from sklearn.datasets import make_classification as skl_make_classification
-from sklearn.preprocessing import StandardScaler as skl_StandardScaler
+#import sklearn.metrics 
+#import sklearn.model_selection
+#from sklearn.datasets import make_classification as skl_make_classification
+#from sklearn.preprocessing import StandardScaler as skl_StandardScaler
 #
-from sklearn.ensemble import RandomForestClassifier as skl_RandomForestClassifier, AdaBoostClassifier as skl_AdaBoostClassifier
-from sklearn.neighbors import KNeighborsClassifier as skl_KNeighborsClassifier
-from sklearn.svm import SVC as skl_SVC
-from sklearn.tree import DecisionTreeClassifier as skl_DecisionTreeClassifier
-from sklearn.naive_bayes import GaussianNB as skl_GaussianNB
-from sklearn.neural_network import BernoulliRBM as skl_BernoulliRBM, MLPClassifier as skl_MLPClassifier
-from sklearn.decomposition import PCA as skl_PCA
+#from sklearn.ensemble import RandomForestClassifier as skl_RandomForestClassifier, AdaBoostClassifier as skl_AdaBoostClassifier
+#from sklearn.neighbors import KNeighborsClassifier as skl_KNeighborsClassifier
+#from sklearn.svm import SVC as skl_SVC
+#from sklearn.tree import DecisionTreeClassifier as skl_DecisionTreeClassifier
+#from sklearn.naive_bayes import GaussianNB as skl_GaussianNB
+#from sklearn.neural_network import BernoulliRBM as skl_BernoulliRBM, MLPClassifier as skl_MLPClassifier
+#from sklearn.decomposition import PCA as skl_PCA
 
 import sklearn_utils
 
 ##############################################################################
-def CrossValidate(clf,X,y,cv_folds):
-  cv_scores = sklearn.model_selection.cross_val_score(clf, X, y, cv=cv_folds, verbose=bool(logging.getLogger().getEffectiveLevel()<=logging.DEBUG))
-  logging.info(f"cv_scores={str(cv_scores)}")
-
-##############################################################################
-def Demo(clf,nclass,nfeat,nsamp,show_plot,ofile_plot):
-  '''Demo classifier using randomly generated dataset for training and test.'''
-  ### Example dataset: two interleaving half circles
-  #X, y = sklearn.datasets.make_moons(noise=0.3, random_state=0)
-  ### Example dataset: 
-  #X, y = sklearn.datasets.load_diabetes() #regression
-  #X, y = sklearn.datasets.load_breast_cancer() #classification
-
-  nclass = nclass if nclass else 2
-  nfeat = nfeat if nfeat else 2 #allows 2D plot
-  nsamp = nsamp if nsamp else random.randint(50,200)
-  
-  ###Generate random classification dataset
-  X, y = skl_make_classification(
-	n_classes=nclass,
-  	n_samples=nsamp,
-  	n_features=nfeat,
-  	n_redundant=0,
-  	n_informative=2,
-  	random_state=random.randint(0,100),
-  	n_clusters_per_class=1)
-  
-  # Preprocess dataset, split into training and test part
-  X = skl_StandardScaler().fit_transform(X)
-  #X_train, X_test, y_train, y_test = sklearn.model_selection.train_test_split(X, y, test_size=.4)
-  X_train, X_test, y_train, y_test = sklearn_utils.SplitDataset(X, y, split_pct=25)
-  
-  ### Train the classifier:
-  clf.fit(X,y)
-  
-  ### Test the classifier:
-  sklearn_utils.TestClassifier(clf,X_train,y_train,'train',None)
-  sklearn_utils.TestClassifier(clf,X_test,y_test,'test',None)
-  sklearn_utils.TestClassifier(clf,X,y,'train_and_test',None)
-
-  fnames = ['feature_%02d'%(j+1) for j in range(nfeat)]
-  epname = 'endpoint'
-
-  title = re.sub(r"^.*'.*\.(.*)'.*$",r'\1',str(type(clf)))
-
-  if show_plot or ofile_plot:
-    if nfeat>2:
-      sklearn_utils.PlotPCA(clf,X_train,y_train,X_test,y_test,fnames,epname,title,None,7,5,100,ofile_plot)
-    else:
-      PlotClassifier(clf,X_train,y_train,X_test,y_test,fnames,epname,title,None,ofile_plot)
-    if show_plot:
-      mpl_pyplot.show()
-
-##############################################################################
-def PlotClassifier(clf,X_train,y_train,X_test,y_test,fnames,epname,title,subtitle,ofile):
-  '''Only for n_features = 2,  n_classes = 2.'''
-
-  logging.debug("PLOT: "+title)
-
-  mesh_h = .02  # mesh step size
-  figsize = (12,8) #w,h in inches
-  fig = mpl_pyplot.figure(figsize=figsize, dpi=100, frameon=False, tight_layout=False)
-
-  X = np.concatenate((X_train,X_test),axis=0)
-  x_min,x_max = X[:,0].min()-.5, X[:,0].max()+.5
-  y_min,y_max = X[:,1].min()-.5, X[:,1].max()+.5
-  
-  xx, yy = np.meshgrid(np.arange(x_min, x_max, mesh_h),
-                          np.arange(y_min, y_max, mesh_h))
-  
-  my_colors = ['#FF0000', '#0000FF', '#00FF00', '#999999']
-
-  #Need more colors for n_classes > 2 ?
-  cm_contour = mpl_pyplot.cm.RdBu
-  cm_bright = mpl_colors.ListedColormap(my_colors)
-
-  ### Axes 1: dataset points only.
-  ax1 = mpl_pyplot.subplot(1, 2, 1)
-  ax1.set_title('%s: dataset points'%(title))
-  if subtitle: ax1.set_title('%s\n%s'%(ax1.get_title(),subtitle))
-  ax1.set_xlabel(fnames[0], labelpad=2)
-  ax1.set_ylabel(fnames[1], labelpad=2)
-
-  ax1.scatter(X_train[:,0], X_train[:,1], c=y_train, cmap=cm_bright)
-
-  ax1.scatter(X_test[:,0], X_test[:,1], c=y_test, cmap=cm_bright, alpha=0.6)
-
-  ax1.set_xlim(xx.min(), xx.max())
-  ax1.set_ylim(yy.min(), yy.max())
-  ax1.set_xticks(())
-  ax1.set_yticks(())
-  
-  ### Axes 2: decision boundary.
-  ax2 = mpl_pyplot.subplot(1, 2, 2)
-  ax2.set_title('%s: decision boundary'%(title))
-  ax2.set_xlabel(fnames[0], labelpad=2)
-  ax2.set_ylabel(fnames[1], labelpad=2)
-
-  #Assign a color to each point in the mesh [x_min, m_max]x[y_min, y_max].
-  if hasattr(clf,"decision_function"):
-    ax2.set_title('%s: decision_function contours'%(title))
-    Z = clf.decision_function(np.c_[xx.ravel(), yy.ravel()])
-  else:
-    ax2.set_title('%s: prediction contours'%(title))
-    Z = clf.predict_proba(np.c_[xx.ravel(), yy.ravel()])[:,1]
-  
-  # Put the result into a color plot
-  Z = Z.reshape(xx.shape)
-  ax2.contourf(xx, yy, Z, cmap=cm_contour, alpha=.8)
-  
-  ax2.scatter(X_train[:,0], X_train[:,1], c=y_train, cmap=cm_bright)
-  ax2.scatter(X_test[:,0], X_test[:,1], c=y_test, cmap=cm_bright, alpha=0.6)
-  
-  ax2.set_xlim(xx.min(), xx.max())
-  ax2.set_ylim(yy.min(), yy.max())
-  ax2.set_xticks(())
-  ax2.set_yticks(())
-  score = clf.score(X_test, y_test)
-  ax2.text(xx.max()-.3, yy.min()+.3, ('%.2f'%score).lstrip('0'), size=15, horizontalalignment='right')
-
-  fig.subplots_adjust(left=.02, right=.98)
-
-  if ofile:
-    fig.savefig(ofile)
-
-  return fig
-
-##############################################################################
-def ClassifierFactory(args):
-  alg =args.alg.upper()
-  clf=None;
-  if alg=='AB':
-    clf = skl_AdaBoostClassifier(algorithm='SAMME.R')
-  elif alg=='DT':
-    clf = skl_DecisionTreeClassifier(criterion='gini',max_depth=None,max_features=None)
-  elif alg=='KNN':
-    clf = skl_KNeighborsClassifier(n_neighbors=4,algorithm='auto',metric='minkowski',p=2)
-  elif alg=='MLP':
-    clf = skl_MLPClassifier(hidden_layer_sizes=(args.nn_layers, ), activation='logistic', solver='adam', alpha=0.0001, batch_size='auto', learning_rate='constant', learning_rate_init=0.001, power_t=0.5, max_iter=args.nn_max_iter, shuffle=True, random_state=None, tol=0.0001, verbose=False, warm_start=False, momentum=0.9, nesterovs_momentum=True, early_stopping=False, validation_fraction=0.1, beta_1=0.9, beta_2=0.999, epsilon=1e-08)
-  elif alg=='NB':
-    clf = skl_GaussianNB()
-  elif alg=='RF':
-    clf = skl_RandomForestClassifier(max_depth=5, n_estimators=10, max_features=1)
-  elif alg=='SVM':
-    try:
-      gamma = float(args.svm_gamma)
-    except:
-      logging.debug(f"args.svm_gamma = '{args.svm_gamma}'")
-      gamma = 'auto'
-    clf = sklearn_utils.SVMClassifierFactory(kernel=args.svm_kernel, cparam=args.svm_cparam, gamma=gamma)
-  return clf
-
-##############################################################################
 if __name__=='__main__':
-  PROG=os.path.basename(sys.argv[0])
   epilog='''\
 Classifier algorithms:
   AB = AdaBoost,
@@ -229,9 +75,9 @@ Classifier algorithms:
   SVM = Support Vector Machine
 '''
   svm_kernels = ['linear', 'rbf', 'sigmoid'] # 'poly' not working?
+  OPS = ['train', 'train_and_test', 'crossvalidate', 'demo']
   parser = argparse.ArgumentParser(description='SciKit-Learn classifier utility', epilog=epilog)
-  ops = ['train', 'train_and_test', 'crossvalidate', 'demo']
-  parser.add_argument("op", choices=ops, help='operation')
+  parser.add_argument("op", choices=OPS, help='OPERATION')
   parser.add_argument("--itrain", dest="ifile_train", help="input, training, CSV with N_features+1 cols, one endpoint col")
   parser.add_argument("--itest", dest="ifile_test", help="input, test, CSV with N_features cols")
   parser.add_argument("--i", dest="ifile", help="input, for both train and test")
@@ -274,10 +120,7 @@ Classifier algorithms:
   elif args.ifile:
     fin_test = open(args.ifile)
 
-  if args.ofile:
-    fout=fout=open(args.ofile, "w")
-  else:
-    fout=None
+  fout = open(args.ofile, "w") if args.ofile else None
 
   t0=time.time()
 
@@ -288,15 +131,15 @@ Classifier algorithms:
 
   logging.debug(f"MATPLOTLIB_BACKEND: {mpl.get_backend()}")
 
-  clf = ClassifierFactory(args)
+  clf = sklearn_utils.ClassifierFactory(args)
 
   if not clf:
-    parser.error('ERROR: Failed to instantiate algorithm "%s"'%args.alg)
+    parser.error('Failed to instantiate algorithm "%s"'%args.alg)
 
   title = args.title if args.title else re.sub(r"^.*'.*\.(\w*)'.*$", r'\1', str(type(clf)))
   delim = '\t' if args.tsv else args.delim
 
-  csv.register_dialect("skl", strict=True, delimiter=delim, quotechar='"', quoting=csv.QUOTE_NONNUMERIC)
+  #csv.register_dialect("skl", strict=True, delimiter=delim, quotechar='"', quoting=csv.QUOTE_NONNUMERIC)
 
   params = clf.get_params()
   logging.debug('Classifier type: {}'.format(re.sub(r"^.*'(.*)'.*$", r'\1', str(type(clf)))))
@@ -304,22 +147,24 @@ Classifier algorithms:
     logging.debug(f"Classifier parameters: {key:>18}: {params[key]}")
 
   if args.op=="demo":
-    Demo(clf, args.nclass, args.nfeat, args.nsamp, args.show_plot, args.ofile_plot)
+    sklearn_utils.Demo(clf, args.nclass, args.nfeat, args.nsamp, args.show_plot, args.ofile_plot)
 
   X, y = None,None
 
   if args.op in ("train", "train_and_test", "crossvalidate"):
     if not fin_train: parser.error('ERROR: input training file required.')
-    X, y, ftags, eptag = sklearn_utils.ReadDataset(fin_train, eptag=args.eptag, ignore_tags=args.ignore_tags, csvdialect=csv.get_dialect("skl"))
+    #X, y, ftags, eptag = sklearn_utils.ReadDataset(fin_train, eptag=args.eptag, ignore_tags=args.ignore_tags, csvdialect=csv.get_dialect("skl"))
+    X, y, ftags, eptag = sklearn_utils.ReadDataset(fin_train, eptag=args.eptag, ignore_tags=args.ignore_tags)
     clf.fit(X,y)
 
   if args.op == "crossvalidate":
-    CrossValidate(clf, X, y, args.cv_folds)
+    sklearn_utils.CrossValidate(clf, X, y, args.cv_folds)
 
   if args.op == "train_and_test":
     if X is None or y is None: parser.error('ERROR: trained model required.')
     if not fin_test: parser.error('ERROR: input test file required.')
-    X_test,y_test,ftags,eptag = sklearn_utils.ReadDataset(fin_test, eptag=args.eptag, ignore_tags=args.ignore_tags, csvdialect=csv.get_dialect("skl"))
+    #X_test,y_test,ftags,eptag = sklearn_utils.ReadDataset(fin_test, eptag=args.eptag, ignore_tags=args.ignore_tags, csvdialect=csv.get_dialect("skl"))
+    X_test,y_test,ftags,eptag = sklearn_utils.ReadDataset(fin_test, eptag=args.eptag, ignore_tags=args.ignore_tags)
     sklearn_utils.TestClassifier(clf, X_test, y_test, 'testset', fout)
 
     if args.show_plot or args.ofile_plot:
@@ -327,7 +172,7 @@ Classifier algorithms:
         cnames = re.split(r'\s*,\s*', args.classnames.strip()) if args.classnames else None
         sklearn_utils.PlotPCA(clf, X, y, X_test, y_test, cnames, args.eptag, title, args.subtitle, args.plot_width, args.plot_height, args.plot_dpi, args.ofile_plot)
       else:
-        PlotClassifier(clf, X, y, X_test, y_test, None, args.eptag, title, args.subtitle, args.ofile_plot)
+        sklearn_utils.PlotClassifier(clf, X, y, X_test, y_test, None, args.eptag, title, args.subtitle, args.ofile_plot)
 
       if args.show_plot:
         mpl_pyplot.show()
