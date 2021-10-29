@@ -1,5 +1,10 @@
 #!/bin/bash
 ###
+# Query PubChem for a specific bioassay, get compounds and bioactivity
+# results (Active/Inactive).
+# Generate fps into ML-ready X vectors, with bioactivity as Y labels for
+# binary classification ML.
+###
 #
 cwd=$(pwd)
 #
@@ -11,7 +16,7 @@ NAME=$(python3 -m BioClients.pubchem.Client get_assayname --aid ${AID} |awk -F '
 printf "Assay name: \"${NAME}\"\n"
 #
 python3 -m BioClients.pubchem.Client get_assaysubstances \
-	--o ${DATADIR}/aid_${AID}_substances.tsv
+	--aid ${AID} --o ${DATADIR}/aid_${AID}_substances.tsv
 cat ${DATADIR}/aid_${AID}_substances.tsv |awk -F '\t' '{print $2}' |sed '1d' \
 	>${DATADIR}/aid_${AID}_substances.sid
 printf "Substances: %d\n" $(cat ${DATADIR}/aid_${AID}_substances.sid |wc -l)
@@ -22,6 +27,10 @@ printf "Compounds: %d\n" $(cat ${DATADIR}/aid_${AID}_compounds.cid |wc -l)
 python3 -m BioClients.pubchem.Client get_assaysubstanceresults \
 	--aid ${AID} --i ${DATADIR}/aid_${AID}_substances.sid \
 	--o ${DATADIR}/aid_${AID}_results.tsv
+python3 -m BioClients.util.pandas.Utils list_columns --i ${DATADIR}/aid_${AID}_results.tsv
+python3 -m BioClients.util.pandas.Utils colvalcounts \
+	--coltags "Bioactivity Outcome" \
+	--i ${DATADIR}/aid_${AID}_results.tsv
 #
 # Columns: CID,CanonicalSMILES,IsomericSMILES
 python3 -m BioClients.pubchem.Client get_cid2smiles \
@@ -39,10 +48,14 @@ python3 -m BioClients.util.pandas.Utils list_columns --i ${DATADIR}/aid_${AID}_c
 ###
 # RDKit
 ###
-python3 -m rdktools.fp.App FingerprintMols --i ${DATADIR}/aid_${AID}_compounds.smiles \
+source $(dirname $(which conda))/../bin/activate rdkit
+#
+python3 -m rdktools.fp.App FingerprintMols \
+	--i ${DATADIR}/aid_${AID}_compounds.smiles \
 	--smilesColumn 1 --nameColumn 0 \
-	--fpAlgo MACCS \
+	--fpAlgo MACCS --output_as_dataframe \
 	--o ${DATADIR}/aid_${AID}_compounds_MaccsFps.pkl
 #
+source $(dirname $(which conda))/../bin/deactivate
 ###
-# Combine fps and activity labels into ML-ready X and Y.
+# Next: Scikit-learn binary classification ML.
