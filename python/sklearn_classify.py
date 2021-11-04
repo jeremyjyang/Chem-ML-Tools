@@ -45,7 +45,7 @@ import random,time
 #import csv #replace with pandas
 
 import numpy as np
-import matplotlib as mpl #additional imports follow
+import matplotlib as mpl
 import pandas as pd
 
 import sklearn
@@ -54,19 +54,17 @@ import sklearn_utils
 
 ##############################################################################
 if __name__=='__main__':
-  ALGOS = {"AB":"AdaBoost", "DT":"Decision Tree", "KNN":"K-Nearest Neighbors", "LDA":"Linear Discriminant Analysis", "MLP":"Multi-layer Perceptron (Neural Network)", "NB":"Gaussian Naive Bayes", "RF":"Random Forest", "SVM":"Support Vector Machine"}
-  SVM_KERNELS = ['linear', 'rbf', 'sigmoid'] # 'poly' not working?
   EPILOG="""\
 Classifier algorithms: {}
-""".format("; ".join([f"{key}:{val}" for key,val in ALGOS.items()]))
+""".format("; ".join([f"{key}:{val}" for key,val in sklearn_utils.ALGOS.items()]))
   parser = argparse.ArgumentParser(description='SciKit-Learn classifier utility', epilog=EPILOG)
-  parser.add_argument("--demo", action="store_true")
+  parser.add_argument("--demo", action="store_true", help="Demo workflow.")
   parser.add_argument("--trainOnly", action="store_true", help="Default is full train-crossvalidate-test, workflow.")
   parser.add_argument("--itrain", dest="ifile_train", help="input, training, CSV with N_features+1 cols, one endpoint col")
   parser.add_argument("--itest", dest="ifile_test", help="input, test, CSV with N_features cols")
   parser.add_argument("--i", dest="ifile", help="input, for both train and test")
-  parser.add_argument("--algorithm", dest="algo", choices=ALGOS.keys(), default="KNN", help="classifier algorithm")
-  parser.add_argument("--show_plot", action="store_true", help="interactive display")
+  parser.add_argument("--algorithm", dest="algo", choices=sklearn_utils.ALGOS.keys(), default="KNN", help="classifier algorithm")
+  #parser.add_argument("--show_plot", action="store_true", help="debug/interactive display")
   parser.add_argument("--title", help="for plot etc.")
   parser.add_argument("--subtitle", help="for plot etc.")
   parser.add_argument("--delim", default="\t", help="CSV delimiter")
@@ -78,7 +76,7 @@ Classifier algorithms: {}
   parser.add_argument("--nsamp", type=int, help="N samples")
   parser.add_argument("--nn_layers", type=int, default=100, help="NN hidden layers")
   parser.add_argument("--nn_max_iter", type=int, default=500, help="NN max iterations")
-  parser.add_argument("--svm_kernel", choices=SVM_KERNELS, default="rbf", help="SVM kernel")
+  parser.add_argument("--svm_kernel", choices=sklearn_utils.SVM_KERNELS, default="rbf", help="SVM kernel")
   parser.add_argument("--svm_cparam", type=float, default=1.0, help="SVM C-parameter")
   parser.add_argument("--svm_gamma", type=float, help="SVM gamma-parameter (non-linear kernel only)")
   parser.add_argument("--cv_folds", type=int, default=5, help="cross-validation folds")
@@ -91,7 +89,7 @@ Classifier algorithms: {}
   parser.add_argument("-v", "--verbose", dest="verbose", action="count", default=0)
   args = parser.parse_args()
 
-  logging.basicConfig(format='%(levelname)s:%(message)s', level=(logging.DEBUG if args.verbose>1 or args.op=="demo" else logging.INFO))
+  logging.basicConfig(format='%(levelname)s:%(message)s', level=(logging.DEBUG if args.verbose>1 or args.demo else logging.INFO))
 
   fin_train = open(args.ifile_train) if args.ifile_train else open(args.ifile) if args.ifile else None
   fin_test = open(args.ifile_test) if args.ifile_test else open(args.ifile) if args.ifile else None
@@ -104,20 +102,12 @@ Classifier algorithms: {}
 
   logging.info(f"Scikit-learn version: {sklearn.__version__}")
 
-  if not args.show_plot:
-    mpl.use('Agg')
-  import matplotlib.pyplot as mpl_pyplot
-  import matplotlib.colors as mpl_colors #ListedColormap
+  #if not args.show_plot: mpl.use('Agg')
 
   logging.debug(f"MATPLOTLIB_BACKEND: {mpl.get_backend()}")
 
   if args.demo:
-    for algo in ALGOS.keys():
-      logging.info(f"=== {algo:>8}: {ALGOS[algo]}")
-      clf = sklearn_utils.ClassifierFactory(algo, args)
-      if clf is not None:
-        sklearn_utils.Demo(clf, args.nclass, args.nfeat, args.nsamp, args.show_plot, args.ofile_plot)
-    sys.exit()
+    sklearn_utils.Demo()
 
   X, y = None,None
   if not fin_train: parser.error('Input training file required.')
@@ -139,7 +129,7 @@ Classifier algorithms: {}
       else:
         fig = sklearn_utils.Plot2by2Classifier(clf, X, y, X_test, y_test, None, args.eptag, title, args.subtitle)
       if args.ofile_plot: fig.savefig(ofile_plot)
-      if args.show_plot: mpl_pyplot.show()
+      if args.show_plot: mpl.pyplot.show()
     if args.ofile: fout.close()
 
   logging.info("Elapsed time: "+(time.strftime('%Hh:%Mm:%Ss', time.gmtime(time.time()-t0))))

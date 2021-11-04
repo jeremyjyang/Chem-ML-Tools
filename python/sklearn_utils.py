@@ -7,13 +7,15 @@
 ###   X = float array, N samples * n features
 ###   y = integer labels, N * (1 or 0)
 #############################################################################
-import sys,os,time,re,argparse,logging,random
+import sys,os,time,re,argparse,logging,random,tempfile
 import numpy as np
 import pandas as pd
 
 import matplotlib as mpl
-import matplotlib.pyplot as mpl_pyplot
-import matplotlib.colors as mpl_colors #ListedColormap
+#import matplotlib.pyplot as mpl_pyplot
+#import matplotlib.colors as mpl_colors #ListedColormap
+
+from PIL import Image
 
 import sklearn
 import sklearn.metrics
@@ -28,39 +30,106 @@ from sklearn.tree import DecisionTreeClassifier as DecisionTreeClassifier
 from sklearn.naive_bayes import GaussianNB as GaussianNB
 from sklearn.neural_network import BernoulliRBM as BernoulliRBM, MLPClassifier as MLPClassifier
 from sklearn.decomposition import PCA as PCA
+#
+ALGOS = {"AB":"AdaBoost", "DT":"Decision Tree", "KNN":"K-Nearest Neighbors", "LDA":"Linear Discriminant Analysis", "MLP":"Multi-layer Perceptron (Neural Network)", "NB":"Gaussian Naive Bayes", "RF":"Random Forest", "SVM":"Support Vector Machine"}
+SVM_KERNELS = ['linear', 'rbf', 'sigmoid'] # 'poly' not working?
+#
+##############################################################################
+def Demo():
+  imgfiles=[];
+  for i,algo in enumerate(ALGOS.keys()):
+    logging.info(f"=== {algo:>8}: {ALGOS[algo]}")
+    try:
+      clf = ClassifierFactory(algo, nn_layers=100, nn_max_iter=500, svm_gamma=None, svm_kernel="rbf", svm_cparam=1.0)
+    except Exception as e:
+      logging.error(f"Classifier instantiation failed ({algo}): {e}")
+      clf=None;
+    if clf is not None:
+      fig = DemoClassifier(clf, nclass=2, nfeat=None, nsamp=None)
+      f = tempfile.NamedTemporaryFile(prefix='sklearn_utils_', suffix='.png', delete=False)
+      fig.savefig(f.name)
+      imgfiles.append(f.name)
+      logging.info(f"{i}. {f.name}")
+
+  imgs = [Image.open(imgfile) for imgfile in imgfiles]
+  img_all = Image.new('RGB', (imgs[0].width, len(imgs)*imgs[0].height))
+  for i,img in enumerate(imgs):
+    img_all.paste(img, (0, i*imgs[0].height))
+  img_all.show()
+  for imgfile in imgfiles: os.remove(imgfile)
+  sys.exit()
 
 ##############################################################################
-def ClassifierFactory(alg, args):
-  clf=None;
-  try:
-    if alg=='AB':
-      clf = AdaBoostClassifier(algorithm='SAMME.R')
+def DemoClassifier(clf, nclass, nfeat, nsamp):
+  '''Demo classifier using randomly generated dataset for training and test.'''
+  ### Example dataset: two interleaving half circles
+  #X, y = sklearn.datasets.make_moons(noise=0.3, random_state=0)
+  ### Example dataset: 
+  #X, y = sklearn.datasets.load_diabetes() #regression
+  #X, y = sklearn.datasets.load_breast_cancer() #classification
 
-    elif alg=='DT':
-      clf = DecisionTreeClassifier(criterion='gini', max_depth=None, max_features=None)
-    elif alg=='KNN':
-      clf = KNeighborsClassifier(n_neighbors=4, algorithm='auto', metric='minkowski', p=2)
-    elif alg=='MLP':
-      clf = MLPClassifier(hidden_layer_sizes=(args.nn_layers, ), activation='logistic', solver='adam', alpha=0.0001, batch_size='auto', learning_rate='constant', learning_rate_init=0.001, power_t=0.5, max_iter=args.nn_max_iter, shuffle=True, random_state=None, tol=0.0001, verbose=False, warm_start=False, momentum=0.9, nesterovs_momentum=True, early_stopping=False, validation_fraction=0.1, beta_1=0.9, beta_2=0.999, epsilon=1e-08)
+  nclass = nclass if nclass else 2
+  nfeat = nfeat if nfeat else 2 #allows 2D plot
+  nsamp = nsamp if nsamp else random.randint(50, 200)
 
-    elif alg=='NB':
-      clf = GaussianNB()
+  ###Generate random classification dataset
+  X, y = make_classification(n_classes=nclass, n_samples=nsamp, n_features=nfeat, n_redundant=0, n_informative=2, random_state=random.randint(0, 100), n_clusters_per_class=1)
 
-    elif alg=='RF':
-      #AttributeError: 'RandomForestClassifier' object has no attribute 'estimators_'
-      #clf = RandomForestClassifier(max_depth=5, n_estimators=10, max_features=1)
-      clf = RandomForestClassifier(bootstrap=True, class_weight=None, criterion='gini', max_depth=None, max_features='auto', max_leaf_nodes=None, min_impurity_decrease=0.0, min_impurity_split=None, min_samples_leaf=1, min_samples_split=2, min_weight_fraction_leaf=0.0, n_estimators=10, n_jobs=1, oob_score=False, random_state=None, verbose=0, warm_start=False)
+  # Preprocess dataset, split into training and test part
+  X = StandardScaler().fit_transform(X)
+  #X_train, X_test, y_train, y_test = sklearn.model_selection.train_test_split(X, y, test_size=.4)
+  X_train, X_test, y_train, y_test = SplitDataset(X, y, split_pct=25)
 
-    elif alg=='SVM':
-      logging.debug(f"args.svm_gamma = '{args.svm_gamma}'")
-      gamma = 'auto' if args.svm_gamma is None else args.svm_gamma
-      clf = SVMClassifierFactory(kernel=args.svm_kernel, cparam=args.svm_cparam, gamma=gamma)
+  ### Train the classifier:
+  clf.fit(X,y)
 
-    elif alg=='LDA':
-      logging.error(f"LDA not yet implemented.")
+  ### Test the classifier:
+  TestClassifier(clf, X_train, y_train, 'train', None)
+  TestClassifier(clf, X_test, y_test, 'test', None)
+  TestClassifier(clf, X, y, 'train_and_test', None)
 
-  except Exception as e:
-    logging.error(f"Classifier instantiation failed: {e}")
+  fnames = [f"feature_{j+1:02d}" for j in range(nfeat)]
+  epname = 'endpoint'
+
+  title = re.sub(r"^.*'.*\.(.*)'.*$", r'\1', str(type(clf)))
+
+  fig = PlotPCA(clf, X_train, y_train, X_test, y_test, fnames, epname, title, None, 7, 5, 100) if nfeat>2 else Plot2by2Classifier(clf, X_train, y_train, X_test, y_test, fnames, epname, title, None)
+  return fig
+
+##############################################################################
+def ClassifierFactory(algo, nn_layers, nn_max_iter, svm_gamma, svm_kernel, svm_cparam):
+  if algo=='AB':
+    clf = AdaBoostClassifier(algorithm='SAMME.R')
+
+  elif algo=='DT':
+    clf = DecisionTreeClassifier(criterion='gini', max_depth=None, max_features=None)
+
+  elif algo=='KNN':
+    clf = KNeighborsClassifier(n_neighbors=4, algorithm='auto', metric='minkowski', p=2)
+
+  elif algo=='MLP':
+    clf = MLPClassifier(hidden_layer_sizes=(nn_layers, ), activation='logistic', solver='adam', alpha=0.0001, batch_size='auto', learning_rate='constant', learning_rate_init=0.001, power_t=0.5, max_iter=nn_max_iter, shuffle=True, random_state=None, tol=0.0001, verbose=False, warm_start=False, momentum=0.9, nesterovs_momentum=True, early_stopping=False, validation_fraction=0.1, beta_1=0.9, beta_2=0.999, epsilon=1e-08)
+
+  elif algo=='NB':
+    clf = GaussianNB()
+
+  elif algo=='RF':
+    #AttributeError: 'RandomForestClassifier' object has no attribute 'estimators_'
+    #clf = RandomForestClassifier(max_depth=5, n_estimators=10, max_features=1)
+    clf = RandomForestClassifier(bootstrap=True, class_weight=None, criterion='gini', max_depth=None, max_features='auto', max_leaf_nodes=None, min_impurity_decrease=0.0, min_impurity_split=None, min_samples_leaf=1, min_samples_split=2, min_weight_fraction_leaf=0.0, n_estimators=10, n_jobs=1, oob_score=False, random_state=None, verbose=0, warm_start=False)
+
+  elif algo=='SVM':
+    logging.debug(f"svm_gamma = '{svm_gamma}'")
+    gamma = 'auto' if svm_gamma is None else svm_gamma
+    clf = SVMClassifierFactory(kernel=svm_kernel, cparam=svm_cparam, gamma=gamma)
+
+  elif algo=='LDA':
+    logging.error(f"Not yet implemented: {algo}")
+    clf=None;
+
+  else:
+    logging.error(f"Not yet implemented: {algo}")
+    clf=None;
 
   if clf is not None:
     params = clf.get_params()
@@ -68,7 +137,7 @@ def ClassifierFactory(alg, args):
     for key in sorted(params.keys()):
       logging.debug(f"Classifier parameters: {key:>18}: {params[key]}")
   else:
-    logging.error(f"Failed to instantiate algorithm '{alg}'")
+    logging.error(f"Failed to instantiate algorithm '{algo}'")
   return clf
 
 ##############################################################################
@@ -248,7 +317,7 @@ def PlotPCA(clf, X_train, y_train, X_test, y_test, cnames, epname, title, subtit
   logging.info(f"PCA {X.shape[1]}D to {X_r.shape[1]}-component")
   logging.info(f"PCA explained variance ratio (1st 2 components): {str(pca.explained_variance_ratio_)}")
 
-  fig = mpl_pyplot.figure(frameon=False, tight_layout=False)
+  fig = mpl.pyplot.figure(frameon=False, tight_layout=False)
   fig.set_size_inches((width, height))
   fig.set_dpi(dpi)
   ax = fig.gca()
@@ -262,21 +331,21 @@ def PlotPCA(clf, X_train, y_train, X_test, y_test, cnames, epname, title, subtit
   X_r_train = X_r[:n_train]
   X_r_test = X_r[-n_test:]
   for y_val, color, ylabel in zip(y_vals, colors, ylabels):
-    mpl_pyplot.scatter(X_r_train[y_train==y_val, 0], X_r_train[y_train==y_val, 1], color=color, marker=".", alpha=.8, lw=lw, label="train:"+ylabel) #Train
-    #mpl_pyplot.scatter(X_r_test[y_test==y_val, 0], X_r_test[y_test==y_val, 1], color=color, marker="+", alpha=.8, lw=lw, label="test:"+ylabel) #Test
+    mpl.pyplot.scatter(X_r_train[y_train==y_val, 0], X_r_train[y_train==y_val, 1], color=color, marker=".", alpha=.8, lw=lw, label="train:"+ylabel) #Train
+    #mpl.pyplot.scatter(X_r_test[y_test==y_val, 0], X_r_test[y_test==y_val, 1], color=color, marker="+", alpha=.8, lw=lw, label="test:"+ylabel) #Test
 
   X_r_test_fp = X_r_test[np.where(y_test_fp)]
-  mpl_pyplot.scatter(X_r_test_fp[:, 0], X_r_test_fp[:, 1], color="red", marker="^", alpha=.5, lw=lw, label="test:FP") #red-^ FPs
+  mpl.pyplot.scatter(X_r_test_fp[:, 0], X_r_test_fp[:, 1], color="red", marker="^", alpha=.5, lw=lw, label="test:FP") #red-^ FPs
   X_r_test_fn = X_r_test[np.where(y_test_fn)]
-  mpl_pyplot.scatter(X_r_test_fn[:, 0], X_r_test_fn[:, 1], color="red", marker="v", alpha=.5, lw=lw, label="test:FN") #red-v FNs
+  mpl.pyplot.scatter(X_r_test_fn[:, 0], X_r_test_fn[:, 1], color="red", marker="v", alpha=.5, lw=lw, label="test:FN") #red-v FNs
 
   X_r_test_tp = X_r_test[np.where(y_test_tp)]
-  mpl_pyplot.scatter(X_r_test_tp[:, 0], X_r_test_tp[:, 1], color="green", marker="^", alpha=.5, lw=lw, label="test:TP") #green-^ TPs
+  mpl.pyplot.scatter(X_r_test_tp[:, 0], X_r_test_tp[:, 1], color="green", marker="^", alpha=.5, lw=lw, label="test:TP") #green-^ TPs
   X_r_test_tn = X_r_test[np.where(y_test_tn)]
-  mpl_pyplot.scatter(X_r_test_tn[:, 0], X_r_test_tn[:, 1], color="green", marker="v", alpha=.5, lw=lw, label="test:TN") #green-v TNs
+  mpl.pyplot.scatter(X_r_test_tn[:, 0], X_r_test_tn[:, 1], color="green", marker="v", alpha=.5, lw=lw, label="test:TN") #green-v TNs
 
-  mpl_pyplot.legend(loc="best", title=None, shadow=True, scatterpoints=1)
-  mpl_pyplot.title(f"PCA ({pca_d}D) of {title}\n{subtitle if subtitle else ''}")
+  mpl.pyplot.legend(loc="best", title=None, shadow=True, scatterpoints=1)
+  mpl.pyplot.title(f"PCA ({pca_d}D) of {title}\n{subtitle if subtitle else ''}")
   ax.set_xlabel("PC1")
   ax.set_ylabel("PC2")
   ax.set_xticklabels(ax.get_xticklabels(), size="small") #ticklabels go away?
@@ -299,8 +368,8 @@ def PlotPCA(clf, X_train, y_train, X_test, y_test, cnames, epname, title, subtit
   yplot_mesh = X_r[:, 1]
 
   #Need more colors for n_classes > 2 ?
-  cm_contour = mpl_pyplot.cm.RdBu
-  cm_bright = mpl_colors.ListedColormap(["#FF0000", "#0000FF"])
+  cm_contour = mpl.pyplot.cm.RdBu
+  cm_bright = mpl.colors.ListedColormap(["#FF0000", "#0000FF"])
 
   #Assign a color to each point in the mesh [x_min, m_max]x[y_min, y_max].
   #Decision function returns how far from decision surface, sign indicating which side.
@@ -326,53 +395,12 @@ def CrossValidate(clf, X, y, cv_folds):
   logging.info(f"cv_scores={str(cv_scores)}")
 
 ##############################################################################
-def Demo(clf, nclass, nfeat, nsamp, show_plot, ofile_plot):
-  '''Demo classifier using randomly generated dataset for training and test.'''
-  ### Example dataset: two interleaving half circles
-  #X, y = sklearn.datasets.make_moons(noise=0.3, random_state=0)
-  ### Example dataset: 
-  #X, y = sklearn.datasets.load_diabetes() #regression
-  #X, y = sklearn.datasets.load_breast_cancer() #classification
-
-  nclass = nclass if nclass else 2
-  nfeat = nfeat if nfeat else 2 #allows 2D plot
-  nsamp = nsamp if nsamp else random.randint(50,200)
-
-  ###Generate random classification dataset
-  X, y = make_classification(n_classes=nclass, n_samples=nsamp, n_features=nfeat, n_redundant=0, n_informative=2, random_state=random.randint(0, 100), n_clusters_per_class=1)
-
-  # Preprocess dataset, split into training and test part
-  X = StandardScaler().fit_transform(X)
-  #X_train, X_test, y_train, y_test = sklearn.model_selection.train_test_split(X, y, test_size=.4)
-  X_train, X_test, y_train, y_test = SplitDataset(X, y, split_pct=25)
-
-  ### Train the classifier:
-  clf.fit(X,y)
-
-  ### Test the classifier:
-  TestClassifier(clf, X_train, y_train, 'train', None)
-  TestClassifier(clf, X_test, y_test, 'test', None)
-  TestClassifier(clf, X, y, 'train_and_test', None)
-
-  fnames = [f"feature_{j+1:02d}" for j in range(nfeat)]
-  epname = 'endpoint'
-
-  title = re.sub(r"^.*'.*\.(.*)'.*$", r'\1', str(type(clf)))
-
-  if show_plot or ofile_plot:
-    if nfeat>2:
-      fig = PlotPCA(clf, X_train, y_train, X_test, y_test, fnames, epname, title, None, 7, 5, 100)
-    else:
-      fig = Plot2by2Classifier(clf, X_train, y_train, X_test, y_test, fnames, epname, title, None)
-    if show_plot: mpl_pyplot.show()
-
-##############################################################################
 def Plot2by2Classifier(clf, X_train, y_train, X_test, y_test, fnames, epname, title, subtitle):
   '''Only for n_features = 2,  n_classes = 2.'''
   logging.debug("PLOT: "+title)
   mesh_h = .02  # mesh step size
   figsize = (12,8) #w,h in inches
-  fig = mpl_pyplot.figure(figsize=figsize, dpi=100, frameon=False, tight_layout=False)
+  fig = mpl.pyplot.figure(figsize=figsize, dpi=100, frameon=False, tight_layout=False)
 
   X = np.concatenate((X_train,X_test),axis=0)
   x_min,x_max = X[:,0].min()-.5, X[:,0].max()+.5
@@ -382,11 +410,11 @@ def Plot2by2Classifier(clf, X_train, y_train, X_test, y_test, fnames, epname, ti
   my_colors = ['#FF0000', '#0000FF', '#00FF00', '#999999']
 
   #Need more colors for n_classes > 2 ?
-  cm_contour = mpl_pyplot.cm.RdBu
-  cm_bright = mpl_colors.ListedColormap(my_colors)
+  cm_contour = mpl.pyplot.cm.RdBu
+  cm_bright = mpl.colors.ListedColormap(my_colors)
 
   ### Axes 1: dataset points only.
-  ax1 = mpl_pyplot.subplot(1, 2, 1)
+  ax1 = mpl.pyplot.subplot(1, 2, 1)
   ax1.set_title('%s: dataset points'%(title))
   if subtitle: ax1.set_title('%s\n%s'%(ax1.get_title(),subtitle))
   ax1.set_xlabel(fnames[0], labelpad=2)
@@ -401,7 +429,7 @@ def Plot2by2Classifier(clf, X_train, y_train, X_test, y_test, fnames, epname, ti
   ax1.set_yticks(())
 
   ### Axes 2: decision boundary.
-  ax2 = mpl_pyplot.subplot(1, 2, 2)
+  ax2 = mpl.pyplot.subplot(1, 2, 2)
   ax2.set_title('%s: decision boundary'%(title))
   ax2.set_xlabel(fnames[0], labelpad=2)
   ax2.set_ylabel(fnames[1], labelpad=2)
