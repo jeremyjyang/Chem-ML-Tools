@@ -1,4 +1,4 @@
-# `ChemMl`
+# `Chem-ML-Tools`
 
 Tools for machine learning on chemical entities. Vectorization of chemical
 structures with fingerprints, training and predicting with datasets labeled
@@ -13,3 +13,6 @@ with bioactivity or physicochemical properties.
 * Pytorch
 * Tensorflow
 
+See also:
+
+* [ChemML](https://github.com/hachmannlab/chemml)
